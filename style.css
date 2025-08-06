@@ -1,0 +1,8 @@
+body {
+    margin: 0;
+    overflow: hidden; /* Prevent scrollbars from appearing */
+}
+
+canvas {
+    display: block; /* Remove annoying space below canvas */
+}
