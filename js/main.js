@@ -36,6 +36,13 @@ const grassTopTexture = textureLoader.load('https://raw.githubusercontent.com/ia
 const grassSideTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/grass_side.png');
 const dirtTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/dirt.png');
 const stoneTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/stone.png');
+const sandTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/sand.png');
+const woodTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/oak_log.png');
+const leavesTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/oak_leaves.png');
+const coalOreTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/coal_ore.png');
+const ironOreTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/iron_ore.png');
+const oakPlanksTexture = textureLoader.load('https://raw.githubusercontent.com/ianklatzco/mc.js/master/textures/oak_planks.png');
+
 
 // Materials
 const grassMaterial = [
@@ -48,7 +55,30 @@ const grassMaterial = [
 ];
 const dirtMaterial = new THREE.MeshLambertMaterial({ map: dirtTexture });
 const stoneMaterial = new THREE.MeshLambertMaterial({ map: stoneTexture });
+const sandMaterial = new THREE.MeshLambertMaterial({ map: sandTexture });
+const woodMaterial = new THREE.MeshLambertMaterial({ map: woodTexture });
+const leavesMaterial = new THREE.MeshLambertMaterial({ map: leavesTexture, transparent: true });
+const coalOreMaterial = new THREE.MeshLambertMaterial({ map: coalOreTexture });
+const ironOreMaterial = new THREE.MeshLambertMaterial({ map: ironOreTexture });
+const oakPlanksMaterial = new THREE.MeshLambertMaterial({ map: oakPlanksTexture });
 
+
+// Crafting
+const craftingGrid = [null, null, null, null, null, null, null, null, null];
+const recipes = [
+    {
+        shape: [
+            [null, null, null],
+            [null, 'wood', null],
+            [null, null, null]
+        ],
+        result: { type: 'oak_planks', count: 4 }
+    }
+];
+
+// Biome noise
+const biomeNoise = createNoise2D();
+const biomeScale = 0.02;
 
 // Chunk-based world storage
 const chunks = new Map();
@@ -59,33 +89,18 @@ class Chunk {
         this.chunkZ = chunkZ;
         this.blocks = new Map();
         this.meshes = {};
-
-        for (let x = 0; x < chunkSize; x++) {
-            for (let z = 0; z < chunkSize; z++) {
-                const worldX = this.chunkX * chunkSize + x;
-                const worldZ = this.chunkZ * chunkSize + z;
-                const noiseValue = noise2D(worldX * noiseScale, worldZ * noiseScale);
-                const height = Math.round((noiseValue + 1) / 2 * terrainHeight);
-
-                for (let y = 0; y <= height; y++) {
-                    const blockKey = `${x},${y},${z}`;
-                    if (y === height) {
-                        this.blocks.set(blockKey, 'grass');
-                    } else if (y >= height - 3) {
-                        this.blocks.set(blockKey, 'dirt');
-                    } else {
-                        this.blocks.set(blockKey, 'stone');
-                    }
-                }
-            }
-        }
     }
 
     rebuildMeshes() {
-        Object.values(this.meshes).forEach(mesh => scene.remove(mesh));
+        Object.values(this.meshes).forEach(mesh => mesh && scene.remove(mesh));
         this.meshes.grass = this.createInstancedMesh('grass', grassMaterial);
         this.meshes.dirt = this.createInstancedMesh('dirt', dirtMaterial);
         this.meshes.stone = this.createInstancedMesh('stone', stoneMaterial);
+        this.meshes.sand = this.createInstancedMesh('sand', sandMaterial);
+        this.meshes.wood = this.createInstancedMesh('wood', woodMaterial);
+        this.meshes.leaves = this.createInstancedMesh('leaves', leavesMaterial);
+        this.meshes.coal_ore = this.createInstancedMesh('coal_ore', coalOreMaterial);
+        this.meshes.iron_ore = this.createInstancedMesh('iron_ore', ironOreMaterial);
     }
 
     createInstancedMesh(blockType, material) {
@@ -155,7 +170,9 @@ async function updateChunks() {
                                 chunkZ: z,
                                 chunkSize,
                                 terrainHeight,
-                                noiseScale
+                        noiseScale,
+                        biomeScale,
+                        seed: 'my-seed' // a fixed seed for now
                             });
                         }
                     });
@@ -251,6 +268,16 @@ const onKeyDown = (event) => {
         if (digit >= 1 && digit <= 9) {
             selectedSlot = digit - 1;
             updateHotbar();
+        }
+    }
+
+    if (event.code === 'KeyE') {
+        const inventoryScreen = document.getElementById('inventory-screen');
+        inventoryScreen.classList.toggle('hidden');
+        if (inventoryScreen.classList.contains('hidden')) {
+            controls.lock();
+        } else {
+            controls.unlock();
         }
     }
 };
@@ -440,7 +467,8 @@ const slots = hotbar.children;
 const inventory = [
     { type: 'dirt', count: 64 },
     { type: 'stone', count: 64 },
-    null, null, null, null, null, null, null
+    { type: 'sand', count: 64 },
+    null, null, null, null, null, null
 ];
 let selectedSlot = 0;
 
@@ -450,8 +478,10 @@ function updateHotbar() {
         const item = inventory[i];
         if (item) {
             slot.textContent = `${item.type.charAt(0).toUpperCase()}${item.type.slice(1)}\n${item.count}`;
+            slot.draggable = true;
         } else {
             slot.textContent = '';
+            slot.draggable = false;
         }
         if (i === selectedSlot) {
             slot.classList.add('selected');
@@ -459,9 +489,169 @@ function updateHotbar() {
             slot.classList.remove('selected');
         }
     }
+    // For now, player inventory is the same as hotbar
+    const playerInventory = document.getElementById('player-inventory');
+    playerInventory.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+        const slot = document.createElement('div');
+        slot.classList.add('slot');
+        const item = inventory[i];
+        if (item) {
+            slot.textContent = `${item.type.charAt(0).toUpperCase()}${item.type.slice(1)}\n${item.count}`;
+            slot.draggable = true;
+        }
+        playerInventory.appendChild(slot);
+    }
+
+    const craftingGridEl = document.querySelector('.crafting-grid');
+    for (let i = 0; i < 9; i++) {
+        const slot = craftingGridEl.children[i];
+        const item = craftingGrid[i];
+        if (item) {
+            slot.textContent = `${item.type.charAt(0).toUpperCase()}${item.type.slice(1)}\n${item.count}`;
+            slot.draggable = true;
+        } else {
+            slot.textContent = '';
+            slot.draggable = false;
+        }
+    }
 }
 
 updateHotbar();
+
+const inventoryScreen = document.getElementById('inventory-screen');
+let draggedItem = null;
+
+inventoryScreen.addEventListener('dragstart', (event) => {
+    if (event.target.classList.contains('slot')) {
+        const slotIndex = Array.from(event.target.parentNode.children).indexOf(event.target);
+        draggedItem = {
+            item: inventory[slotIndex],
+            originalIndex: slotIndex
+        };
+        event.dataTransfer.effectAllowed = 'move';
+    }
+});
+
+inventoryScreen.addEventListener('dragover', (event) => {
+    event.preventDefault();
+});
+
+inventoryScreen.addEventListener('drop', (event) => {
+    event.preventDefault();
+    if (event.target.classList.contains('slot') && draggedItem) {
+        const parent = event.target.parentNode;
+        const dropIndex = Array.from(parent.children).indexOf(event.target);
+
+        if (parent.classList.contains('crafting-grid')) {
+            // Drop into crafting grid
+            craftingGrid[dropIndex] = draggedItem.item;
+            inventory[draggedItem.originalIndex] = null;
+        } else {
+            // Swap items in inventory
+            const temp = inventory[dropIndex];
+            inventory[dropIndex] = draggedItem.item;
+            inventory[draggedItem.originalIndex] = temp;
+        }
+
+        checkCrafting();
+        updateHotbar();
+        draggedItem = null;
+    }
+});
+
+function checkCrafting() {
+    const resultSlot = document.querySelector('.slot.result');
+    resultSlot.innerHTML = '';
+
+    for (const recipe of recipes) {
+        let match = true;
+        for (let i = 0; i < 3; i++) {
+            for (let j = 0; j < 3; j++) {
+                const item = craftingGrid[i * 3 + j];
+                const required = recipe.shape[i][j];
+                if ((item && item.type !== required) || (!item && required)) {
+                    match = false;
+                    break;
+                }
+            }
+            if (!match) break;
+        }
+
+        if (match) {
+            const item = recipe.result;
+            resultSlot.textContent = `${item.type.charAt(0).toUpperCase()}${item.type.slice(1)}\n${item.count}`;
+            break;
+        }
+    }
+}
+
+const resultSlot = document.querySelector('.slot.result');
+resultSlot.addEventListener('click', () => {
+    const resultText = resultSlot.textContent.trim();
+    if (resultText) {
+        const [type, count] = resultText.split('\n');
+        const item = { type: type.toLowerCase(), count: parseInt(count) };
+
+        // Add to inventory
+        let added = false;
+        for (let i = 0; i < 9; i++) {
+            if (!inventory[i]) {
+                inventory[i] = item;
+                added = true;
+                break;
+            }
+        }
+
+        if (added) {
+            // Consume crafting grid items
+            for (let i = 0; i < 9; i++) {
+                if (craftingGrid[i]) {
+                    craftingGrid[i].count--;
+                    if (craftingGrid[i].count === 0) {
+                        craftingGrid[i] = null;
+                    }
+                }
+            }
+            checkCrafting();
+            updateHotbar();
+        }
+    }
+});
+
+class Mob {
+    constructor(x, y, z) {
+        const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.75, 1), new THREE.MeshLambertMaterial({ color: 0xffaaff }));
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshLambertMaterial({ color: 0xffaaff }));
+        head.position.set(-0.75, 0.25, 0);
+        const leg1 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.5, 0.25), new THREE.MeshLambertMaterial({ color: 0xffaaff }));
+        leg1.position.set(-0.5, -0.625, 0.25);
+        const leg2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.5, 0.25), new THREE.MeshLambertMaterial({ color: 0xffaaff }));
+        leg2.position.set(0.5, -0.625, 0.25);
+        const leg3 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.5, 0.25), new THREE.MeshLambertMaterial({ color: 0xffaaff }));
+        leg3.position.set(-0.5, -0.625, -0.25);
+        const leg4 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.5, 0.25), new THREE.MeshLambertMaterial({ color: 0xffaaff }));
+        leg4.position.set(0.5, -0.625, -0.25);
+
+        this.group = new THREE.Group();
+        this.group.add(body, head, leg1, leg2, leg3, leg4);
+        this.group.position.set(x, y, z);
+        scene.add(this.group);
+    }
+
+    update(delta) {
+        // Simple wandering AI
+        this.group.rotation.y += Math.random() * 0.1 - 0.05;
+        this.group.position.x += Math.sin(this.group.rotation.y) * delta;
+        this.group.position.z += Math.cos(this.group.rotation.y) * delta;
+    }
+}
+
+const mobs = [];
+for (let i = 0; i < 5; i++) {
+    mobs.push(new Mob(Math.random() * 16, terrainHeight + 2, Math.random() * 16));
+}
+
 
 // Animation loop
 const clock = new THREE.Clock();
@@ -472,6 +662,8 @@ function animate() {
 
     if (controls.isLocked === true) {
         updateChunks();
+
+        mobs.forEach(mob => mob.update(delta));
 
         // Raycasting for block highlighting
         raycaster.setFromCamera({ x: 0, y: 0 }, camera);

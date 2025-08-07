@@ -55,3 +55,39 @@ canvas {
 .slot.selected {
     border-color: white;
 }
+
+.hidden {
+    display: none !important;
+}
+
+#inventory-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+#crafting-table {
+    display: flex;
+    align-items: center;
+    background-color: #c6c6c6;
+    border: 2px solid #555;
+    padding: 10px;
+}
+
+.crafting-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 54px);
+    gap: 2px;
+}
+
+.crafting-arrow {
+    font-size: 40px;
+    margin: 0 20px;
+}
